@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -9,9 +10,10 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+
 	"github.com/gorilla/handlers"
 )
 
@@ -33,19 +35,39 @@ func main() {
 		log.Fatalf("bucket name required")
 	}
 
-	var svc *s3.S3
+	var svc *s3.Client
+	var cfg aws.Config
+	var err error
+	ctx := context.Background()
+
 	if *s3Endpoint != "" {
-		log.Printf("Using alternate S3 Endpoint diwht DisableSSL:true, S3ForcePathStyle:true %q", *s3Endpoint)
-		svc = s3.New(session.New(), &aws.Config{
-			Region:           region,
-			Endpoint:         s3Endpoint,
-			DisableSSL:       aws.Bool(true),
-			S3ForcePathStyle: aws.Bool(true),
+		log.Printf("Using alternate S3 Endpoint %q with UsePathStyle:true", *s3Endpoint)
+
+		// Load the default AWS config
+		cfg, err = config.LoadDefaultConfig(ctx,
+			config.WithRegion(*region),
+		)
+		if err != nil {
+			log.Fatalf("unable to load SDK config, %v", err)
+		}
+
+		// Create the S3 client with custom endpoint resolver
+		svc = s3.NewFromConfig(cfg, func(o *s3.Options) {
+			o.EndpointResolver = s3.EndpointResolverFromURL(*s3Endpoint)
+			o.UsePathStyle = true
 		})
+
 	} else {
-		svc = s3.New(session.New(), &aws.Config{
-			Region: region,
-		})
+		// Load the Shared AWS Configuration (~/.aws/config)
+		cfg, err = config.LoadDefaultConfig(ctx,
+			config.WithRegion(*region),
+		)
+		if err != nil {
+			log.Fatalf("unable to load SDK config, %v", err)
+		}
+
+		// Create an Amazon S3 service client
+		svc = s3.NewFromConfig(cfg)
 	}
 
 	var h http.Handler
@@ -66,5 +88,4 @@ func main() {
 	}
 	log.Printf("listening on %s", *listen)
 	log.Fatal(s.ListenAndServe())
-
 }
