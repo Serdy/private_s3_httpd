@@ -1,7 +1,10 @@
 package main
 
 import (
+	// "context"
+	"errors"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"mime"
@@ -9,54 +12,88 @@ import (
 	"path"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go"
 )
 
 type Proxy struct {
 	Bucket string
-	Svc    *s3.S3
+	Svc    *s3.Client
 }
 
 func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	key := req.URL.Path
+	ctx := req.Context()
+	rawKey := req.URL.Path
+
+	// Remove the leading slash from the key
+	key := strings.TrimPrefix(rawKey, "/")
+
+	if key == "" {
+		// List items in the bucket
+		input := &s3.ListObjectsV2Input{
+			Bucket: &p.Bucket,
+		}
+
+		resp, err := p.Svc.ListObjectsV2(ctx, input)
+		if err != nil {
+			var apiErr smithy.APIError
+			if errors.As(err, &apiErr) {
+				log.Printf("Error listing objects: %v", apiErr)
+				http.Error(rw, "Internal Error", http.StatusInternalServerError)
+				return
+			} else {
+				log.Printf("Unknown error listing objects: %v", err)
+				http.Error(rw, "Internal Error", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		// Create a simple HTML page listing the objects
+		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(rw, "<html><body><h1>Contents of Bucket %s</h1><ul>", html.EscapeString(p.Bucket))
+		for _, obj := range resp.Contents {
+			// For each object, create a link to its key
+			escapedKey := html.EscapeString(*obj.Key)
+			fmt.Fprintf(rw, "<li><a href=\"%s\">%s</a></li>", escapedKey, escapedKey)
+		}
+		fmt.Fprintf(rw, "</ul></body></html>")
+		return
+	}
+
 	if strings.HasSuffix(key, "/") {
 		key = key + "index.html"
 	}
 
 	input := &s3.GetObjectInput{
-		Bucket: aws.String(p.Bucket),
-		Key:    aws.String(key),
+		Bucket: &p.Bucket,
+		Key:    &key,
 	}
 	if v := req.Header.Get("If-None-Match"); v != "" {
-		input.IfNoneMatch = aws.String(v)
+		input.IfNoneMatch = &v
 	}
 
-	// awsReq, resp := p.Svc.GetObjectRequest(input)
-	// log.Printf("request: %#v", awsReq)
-	// err := awsReq.Send()
-	// log.Printf("response: %#v", )
-
+	resp, err := p.Svc.GetObject(ctx, input)
 	var is304 bool
-	resp, err := p.Svc.GetObject(input)
-	if awsErr, ok := err.(awserr.Error); ok {
-		switch awsErr.Code() {
-		case s3.ErrCodeNoSuchKey:
-			http.Error(rw, "Page Not Found", 404)
-			return
-		case "NotModified":
-			is304 = true
-			// continue so other headers get set appropriately
-		default:
-			log.Printf("Error: %v %v %v", awsErr.Code(), awsErr.Message(), awsErr.OrigErr())
-			http.Error(rw, "Internal Error", 500)
+	if err != nil {
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) {
+			switch apiErr.ErrorCode() {
+			case "NotModified":
+				is304 = true
+			case "NoSuchKey":
+				http.Error(rw, "Page Not Found", http.StatusNotFound)
+				return
+			default:
+				log.Printf("Error getting object %s: %v", key, apiErr)
+				http.Error(rw, "Internal Error", http.StatusInternalServerError)
+				return
+			}
+		} else {
+			// Handle non-API errors
+			log.Printf("Unknown error getting object %s: %v", key, err)
+			http.Error(rw, "Internal Error", http.StatusInternalServerError)
 			return
 		}
-	} else if err != nil {
-		log.Printf("not aws error %v %s", err, err)
-		http.Error(rw, "Internal Error", 500)
-		return
 	}
 
 	var contentType string
@@ -65,7 +102,7 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	if contentType == "" {
-		ext := path.Ext(req.URL.Path)
+		ext := path.Ext(key)
 		contentType = mime.TypeByExtension(ext)
 	}
 
@@ -76,27 +113,22 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if contentType != "" {
 		rw.Header().Set("Content-Type", contentType)
 	}
-	if resp.ContentLength != nil && *resp.ContentLength > 0 {
+
+	if resp.ContentLength != nil {
 		rw.Header().Set("Content-Length", fmt.Sprintf("%d", *resp.ContentLength))
 	}
 
+	// Set the Content-Disposition header to attachment
+	filename := path.Base(key)
+	rw.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+
 	if is304 {
-		rw.WriteHeader(304)
+		rw.WriteHeader(http.StatusNotModified)
 	} else {
-		io.Copy(rw, resp.Body)
-		resp.Body.Close()
+		defer resp.Body.Close()
+		_, err := io.Copy(rw, resp.Body)
+		if err != nil {
+			log.Printf("Error copying response body: %v", err)
+		}
 	}
 }
-
-// resp, err := svc.ListObjects(&s3.ListObjectsInput{
-// 	Bucket:  aws.String(settings.GetString("s3_bucket")),
-// 	Prefix:  aws.String("data/"),
-// 	MaxKeys: aws.Long(1000),
-// })
-// if awsErr, ok := err.(awserr.Error); ok {
-// 	// A service error occurred.
-// 	log.Fatalf("Error: %v %v", awsErr.Code, awsErr.Message)
-// } else if err != nil {
-// 	// A non-service error occurred.
-// 	log.Fatalf("%v", err)
-// }
