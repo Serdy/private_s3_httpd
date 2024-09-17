@@ -69,7 +69,9 @@ jobs:
 
     - name: Build Docker image
       run: |
-        docker build -f Dockerfile -t ghcr.io/${{ github.repository }}:latest --push .
+        #!/bin/bash
+        REPO_NAME=$(echo "ghcr.io/${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+        docker build -f Dockerfile -t $REPO_NAME:latest --push .
 
     - name: Build Go binaries
       run: |
