@@ -3,7 +3,7 @@ name: Build and Release
 on:
   push:
     branches:
-      - test_pipeline
+      - master
 
 permissions:
   contents: write  # Required to be able to publish a GitHub release
