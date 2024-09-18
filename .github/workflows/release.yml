@@ -77,16 +77,16 @@ jobs:
       run: |
         #!/bin/bash
         set -ex
-        docker build -f builderDockerfile -t local/itcmt-cli-builder:latest .
-        docker run --rm -v ${{ github.workspace }}:/workspace local/itcmt-cli-builder:latest cp /app/bin/itcmt-cli-amd64 /workspace/itcmt-cli-amd64
-        docker run --rm -v ${{ github.workspace }}:/workspace local/itcmt-cli-builder:latest cp /app/bin/itcmt-cli-arm64 /workspace/itcmt-cli-arm64
+        docker build -f builderDockerfile -t local/private_s3_httpd_builder:latest .
+        docker run --rm -v ${{ github.workspace }}:/workspace local/private_s3_httpd_builder:latest cp /app/bin/private_s3_httpd_amd64 /workspace/private_s3_httpd_amd64
+        docker run --rm -v ${{ github.workspace }}:/workspace local/private_s3_httpd_builder:latest cp /app/bin/private_s3_httpd_arm64 /workspace/private_s3_httpd_arm64
 
     - name: Upload Release Asset (AMD64)
       uses: svenstaro/upload-release-action@v2
       with:
         repo_token: ${{ secrets.create_release }}
-        file: itcmt-cli-amd64
-        asset_name: itcmt-cli-amd64
+        file: private_s3_httpd_amd64
+        asset_name: private_s3_httpd_amd64
         tag: ${{ steps.tag_version.outputs.new_tag }}
         overwrite: true
         body: "AMD64 binary for itcmt-cli"
@@ -95,8 +95,8 @@ jobs:
       uses: svenstaro/upload-release-action@v2
       with:
         repo_token: ${{ secrets.create_release }}
-        file: itcmt-cli-arm64
-        asset_name: itcmt-cli-arm64
+        file: private_s3_httpd_arm64
+        asset_name: private_s3_httpd_arm64
         tag: ${{ steps.tag_version.outputs.new_tag }}
         overwrite: true
         body: "AMD64 binary for itcmt-cli"
