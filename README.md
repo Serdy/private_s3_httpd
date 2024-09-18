@@ -1,45 +1,62 @@
-private_s3_httpd
----------------
+# private_s3_httpd Documentation
 
-Private HTTP Server for Amazon S3 content.
+## Overview
+`private_s3_httpd` is an HTTP server that proxies requests to an AWS S3 bucket. It allows listing objects in the bucket and serves individual objects as downloadable files. The server supports specifying a prefix for request paths and can log incoming HTTP requests.
 
-[![Build Status](https://secure.travis-ci.org/jehiah/private_s3_httpd.png?branch=master)](http://travis-ci.org/jehiah/private_s3_httpd) [![GitHub release](https://img.shields.io/github/release/jehiah/private_s3_httpd.svg)](https://github.com/jehiah/private_s3_httpd/releases/latest)
+## Features
+- Serve and list objects from an S3 bucket via HTTP.
+- Support for a configurable path prefix (`-prefix`).
+- Optional logging of HTTP requests.
+- Support for custom S3 endpoints (e.g., for MinIO).
 
-Amazon S3 provides a public HTTP interface for accessing content, but what if you don't want publicly accessible files?
+---
 
-`private_s3_httpd` exposes a private HTTP endpoint for an Amazon S3 bucket so you can controll access to the data. This is ideal for accessing S3 via HTTP api as a backend data service, or for local http browsing of a private s3 bucket, or for use behind another authentication service (like [oauth2_proxy](https://github.com/bitly/oauth2_proxy)) to secure access.
+## Prerequisites
+- AWS credentials configured via environment variables or `~/.aws/credentials`.
+- Go 1.22 or later installed.
+- Access to the S3 bucket you want to proxy.
 
+---
 
-```
-Usage of bin/private_s3_httpd:
-  -bucket string
-    	S3 bucket name
-  -listen string
-    	address:port to listen on. (default ":8080")
-  -log-requests
-    	log HTTP requests (default true)
-  -region string
-    	AWS S3 Region (default "us-east-1")
-  -s3-endpoint string
-    	alternate http://address for accessing s3 (for configuring with minio.io)
-```
+## Installation
+Clone the repository and build the Go binary:
 
-## Configuring S3 Credentials
-
-Before using, ensure that you've configured credentials appropriately. The best way to configure credentials is to use the `~/.aws/credentials` file, which might look like:
-
-```
-[default]
-aws_access_key_id = AKID1234567890
-aws_secret_access_key = MY-SECRET-KEY
+```bash
+git clone https://github.com/serdy/private_s3_httpd.git
+cd private_s3_httpd
+go build -o private_s3_httpd main.go
 ```
 
-You can learn more about the credentials file from [this blog post](http://blogs.aws.amazon.com/security/post/Tx3D6U6WSFGOK2H/A-New-and-Standardized-Way-to-Manage-Credentials-in-the-AWS-SDKs).
+## Usage
 
-Alternatively, you can set the following environment variables:
+Run the server using the following flags:
 
+```bash
+./private_s3_httpd -bucket <S3_BUCKET_NAME> -listen <ADDRESS:PORT> -region <AWS_REGION> [-prefix <PREFIX>] [-log-requests] [-s3-endpoint <S3_ENDPOINT>]
 ```
-AWS_ACCESS_KEY_ID=AKID1234567890
-AWS_SECRET_ACCESS_KEY=MY-SECRET-KEY
+
+### Flags:
+- `-bucket`: The name of the S3 bucket to serve.
+- `-listen`: The address and port on which the server will listen (default: `:8080`).
+- `-region`: The AWS region where the S3 bucket is located (default: `us-east-1`).
+- `-prefix`: An optional path prefix that maps incoming HTTP requests to a specific path in the S3 bucket.
+- `-log-requests`: If set, logs all HTTP requests to the console.
+- `-s3-endpoint`: An optional custom S3-compatible endpoint (e.g., for MinIO).
+
+---
+
+## Example
+
+Run the server on `127.0.0.1:8888` to serve the bucket `another-bucket` in the `eu-central-1` region, with a request prefix of `test/test2`, and enable request logging:
+
+```bash
+./private_s3_httpd -bucket another-bucket -listen 127.0.0.1:8888 -region eu-central-1 -prefix test/test2 -log-requests
 ```
 
+## cURL Example:
+
+To list the contents of the bucket at the specified prefix:
+```bash
+curl http://127.0.0.1:8888/test/test2
+```
+This will list the objects in the S3 bucket under the path /test/test2.
