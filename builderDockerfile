@@ -1,0 +1,25 @@
+# Step 1: Build the Go binaries for different architectures
+FROM golang:1.22 AS builder
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Copy the go.mod and go.sum files
+COPY src/go.mod src/go.sum ./
+
+# Download the module dependencies
+RUN go mod download
+
+# Copy the source code
+COPY src/ .
+
+# Build for linux/amd64
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /app/bin/private_s3_httpd_amd64 main.go
+
+# Build for linux/arm64
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o /app/bin/private_s3_httpd_arm64 main.go
+
+# Step 2: Create the final image with both binaries.
+FROM busybox
+COPY --from=builder /app/bin/private_s3_httpd_amd64 /app/bin/private_s3_httpd_amd64
+COPY --from=builder /app/bin/private_s3_httpd_arm64 /app/bin/private_s3_httpd_arm64
