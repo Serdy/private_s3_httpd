@@ -13,8 +13,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-
 	"github.com/gorilla/handlers"
+	"github.com/serdy/private_s3_httpd/cmd"
 )
 
 func main() {
@@ -27,7 +27,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("private_s3_httpd v%s (built w/%s)\n", VERSION, runtime.Version())
+		fmt.Printf("private_s3_httpd v%s (built w/%s)\n", cmd.VERSION, runtime.Version())
 		return
 	}
 
@@ -71,7 +71,7 @@ func main() {
 	}
 
 	var h http.Handler
-	h = &Proxy{
+	h = &cmd.Proxy{
 		Bucket: *bucket,
 		Svc:    svc,
 	}
