@@ -24,6 +24,7 @@ func main() {
 	logRequests := flag.Bool("log-requests", true, "log HTTP requests")
 	region := flag.String("region", "us-east-1", "AWS S3 Region")
 	s3Endpoint := flag.String("s3-endpoint", "", "alternate http://address for accessing s3 (for configuring with minio.io)")
+	prefix := flag.String("prefix", "", "Prefix for the HTTP paths")
 	flag.Parse()
 
 	if *showVersion {
@@ -43,7 +44,6 @@ func main() {
 	if *s3Endpoint != "" {
 		log.Printf("Using alternate S3 Endpoint %q with UsePathStyle:true", *s3Endpoint)
 
-		// Load the default AWS config
 		cfg, err = config.LoadDefaultConfig(ctx,
 			config.WithRegion(*region),
 		)
@@ -51,14 +51,12 @@ func main() {
 			log.Fatalf("unable to load SDK config, %v", err)
 		}
 
-		// Create the S3 client with custom endpoint resolver
 		svc = s3.NewFromConfig(cfg, func(o *s3.Options) {
 			o.EndpointResolver = s3.EndpointResolverFromURL(*s3Endpoint)
 			o.UsePathStyle = true
 		})
 
 	} else {
-		// Load the Shared AWS Configuration (~/.aws/config)
 		cfg, err = config.LoadDefaultConfig(ctx,
 			config.WithRegion(*region),
 		)
@@ -66,19 +64,25 @@ func main() {
 			log.Fatalf("unable to load SDK config, %v", err)
 		}
 
-		// Create an Amazon S3 service client
 		svc = s3.NewFromConfig(cfg)
 	}
 
-	var h http.Handler
-	h = &cmd.Proxy{
+	// Initialize Proxy with S3 client and bucket name
+	proxy := &cmd.Proxy{
 		Bucket: *bucket,
 		Svc:    svc,
+		Prefix: *prefix, // Pass the prefix here
 	}
+
+	// Declare h as an http.Handler and assign the Proxy to it
+	var h http.Handler = proxy
+
+	// If logRequests is enabled, wrap the handler with CombinedLoggingHandler
 	if *logRequests {
 		h = handlers.CombinedLoggingHandler(os.Stdout, h)
 	}
 
+	// Set up the HTTP server with the handler
 	s := &http.Server{
 		Addr:           *listen,
 		Handler:        h,

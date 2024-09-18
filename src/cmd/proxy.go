@@ -1,15 +1,11 @@
 package cmd
 
 import (
-	// "context"
 	"errors"
 	"fmt"
 	"html"
-	"io"
 	"log"
-	"mime"
 	"net/http"
-	"path"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -19,15 +15,23 @@ import (
 type Proxy struct {
 	Bucket string
 	Svc    *s3.Client
+	Prefix string // Add Prefix field to the Proxy struct
 }
 
 func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	ctx := req.Context()
 	rawKey := req.URL.Path
 
-	// Remove the leading slash from the key
-	key := strings.TrimPrefix(rawKey, "/")
+	// Check if the URL starts with the specified prefix
+	if !strings.HasPrefix(rawKey, "/"+p.Prefix) {
+		http.Error(rw, "Not Found", http.StatusNotFound)
+		return
+	}
 
+	// Trim the prefix from the key
+	key := strings.TrimPrefix(rawKey, "/"+p.Prefix)
+
+	// If the request path is exactly the prefix (e.g., /test/test2), list the S3 bucket contents
 	if key == "" {
 		// List items in the bucket
 		input := &s3.ListObjectsV2Input{
@@ -58,77 +62,5 @@ func (p *Proxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		}
 		fmt.Fprintf(rw, "</ul></body></html>")
 		return
-	}
-
-	if strings.HasSuffix(key, "/") {
-		key = key + "index.html"
-	}
-
-	input := &s3.GetObjectInput{
-		Bucket: &p.Bucket,
-		Key:    &key,
-	}
-	if v := req.Header.Get("If-None-Match"); v != "" {
-		input.IfNoneMatch = &v
-	}
-
-	resp, err := p.Svc.GetObject(ctx, input)
-	var is304 bool
-	if err != nil {
-		var apiErr smithy.APIError
-		if errors.As(err, &apiErr) {
-			switch apiErr.ErrorCode() {
-			case "NotModified":
-				is304 = true
-			case "NoSuchKey":
-				http.Error(rw, "Page Not Found", http.StatusNotFound)
-				return
-			default:
-				log.Printf("Error getting object %s: %v", key, apiErr)
-				http.Error(rw, "Internal Error", http.StatusInternalServerError)
-				return
-			}
-		} else {
-			// Handle non-API errors
-			log.Printf("Unknown error getting object %s: %v", key, err)
-			http.Error(rw, "Internal Error", http.StatusInternalServerError)
-			return
-		}
-	}
-
-	var contentType string
-	if resp.ContentType != nil {
-		contentType = *resp.ContentType
-	}
-
-	if contentType == "" {
-		ext := path.Ext(key)
-		contentType = mime.TypeByExtension(ext)
-	}
-
-	if resp.ETag != nil && *resp.ETag != "" {
-		rw.Header().Set("Etag", *resp.ETag)
-	}
-
-	if contentType != "" {
-		rw.Header().Set("Content-Type", contentType)
-	}
-
-	if resp.ContentLength != nil {
-		rw.Header().Set("Content-Length", fmt.Sprintf("%d", *resp.ContentLength))
-	}
-
-	// Set the Content-Disposition header to attachment
-	filename := path.Base(key)
-	rw.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
-
-	if is304 {
-		rw.WriteHeader(http.StatusNotModified)
-	} else {
-		defer resp.Body.Close()
-		_, err := io.Copy(rw, resp.Body)
-		if err != nil {
-			log.Printf("Error copying response body: %v", err)
-		}
 	}
 }
